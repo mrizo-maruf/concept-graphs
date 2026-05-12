@@ -1080,6 +1080,84 @@ class Hm3dOpeneqaDataset(GradSLAMDataset):
             poses.append(pose)
         return poses
         
+class IsaacSimDataset(GradSLAMDataset):
+    """Loader for the IsaacSim dataset layout used by the 3D-tracking benchmark.
+
+    Expected per-scene structure:
+        <basedir>/<sequence>/
+            rgb/frame######.jpg
+            depth/depth######.png      (16-bit, scale set via config)
+            traj.txt                   (one 4x4 c2w matrix per frame, space-separated)
+            bbox/bboxes######_info.json (GT 3D bboxes, used by the benchmark only)
+            seg/semantic######.png + semantic######_info.json (GT masks)
+    """
+
+    def __init__(
+        self,
+        config_dict,
+        basedir,
+        sequence,
+        stride: Optional[int] = None,
+        start: Optional[int] = 0,
+        end: Optional[int] = -1,
+        desired_height: Optional[int] = 720,
+        desired_width: Optional[int] = 1280,
+        load_embeddings: Optional[bool] = False,
+        embedding_dir: Optional[str] = "embeddings",
+        embedding_dim: Optional[int] = 512,
+        **kwargs,
+    ):
+        self.input_folder = os.path.join(basedir, sequence)
+        self.pose_path = os.path.join(self.input_folder, "traj.txt")
+        super().__init__(
+            config_dict,
+            stride=stride,
+            start=start,
+            end=end,
+            desired_height=desired_height,
+            desired_width=desired_width,
+            load_embeddings=load_embeddings,
+            embedding_dir=embedding_dir,
+            embedding_dim=embedding_dim,
+            **kwargs,
+        )
+
+    def get_filepaths(self):
+        color_paths = natsorted(glob.glob(f"{self.input_folder}/rgb/frame*.jpg"))
+        if not color_paths:
+            color_paths = natsorted(glob.glob(f"{self.input_folder}/rgb/frame*.png"))
+        depth_paths = natsorted(glob.glob(f"{self.input_folder}/depth/depth*.png"))
+        embedding_paths = None
+        if self.load_embeddings:
+            embedding_paths = natsorted(
+                glob.glob(f"{self.input_folder}/{self.embedding_dir}/*.pt")
+            )
+        return color_paths, depth_paths, embedding_paths
+
+    def load_poses(self):
+        poses = []
+        with open(self.pose_path, "r") as f:
+            lines = [ln for ln in f.readlines() if ln.strip()]
+        if len(lines) < self.num_imgs:
+            raise RuntimeError(
+                f"traj.txt has {len(lines)} poses but {self.num_imgs} RGB frames "
+                f"were found in {self.input_folder}/rgb/."
+            )
+        for i in range(self.num_imgs):
+            vals = list(map(float, lines[i].split()))
+            if len(vals) != 16:
+                raise RuntimeError(
+                    f"traj.txt line {i} has {len(vals)} floats, expected 16 (4x4)."
+                )
+            c2w = np.asarray(vals, dtype=np.float64).reshape(4, 4)
+            poses.append(torch.from_numpy(c2w).float())
+        return poses
+
+    def read_embedding_from_file(self, embedding_file_path):
+        embedding = torch.load(embedding_file_path, map_location="cpu")
+        return embedding.permute(0, 2, 3, 1)
+
+
 def load_dataset_config(path, default_path=None):
     """
     Loads config file.
@@ -1187,6 +1265,8 @@ def get_dataset(dataconfig, basedir, sequence, **kwargs):
         return Hm3dDataset(config_dict, basedir, sequence, **kwargs)
     elif config_dict['dataset_name'].lower() in ['hm3d-openeqa']:
         return Hm3dOpeneqaDataset(config_dict, basedir, sequence, **kwargs)
+    elif config_dict['dataset_name'].lower() in ['isaacsim']:
+        return IsaacSimDataset(config_dict, basedir, sequence, **kwargs)
     else:
         raise ValueError(f"Unknown dataset name {config_dict['dataset_name']}")
 
