@@ -141,6 +141,14 @@ def build_cfg(args: argparse.Namespace, scene_dir: Path) -> OmegaConf:
     dataset_cfg = OmegaConf.load(args.dataset_config)
     base.image_height = dataset_cfg.camera_params.image_height
     base.image_width = dataset_cfg.camera_params.image_width
+    # `mapping.aggregate_similarities` only implements "sim_sum" (the README's
+    # recommended setting). `base.yaml` ships with `sep_thresh` which is only
+    # handled inside the original cfslam_pipeline_batch script, not in the
+    # mapping module we call here. Force `sim_sum` and use the README's
+    # default threshold unless the user overrides on the CLI.
+    base.match_method = args.match_method
+    base.sim_threshold = args.sim_threshold
+    base.phys_bias = getattr(base, "phys_bias", 0.0)
     return base
 
 
@@ -440,8 +448,18 @@ if __name__ == "__main__":
         help="Where per-run metric JSONs are written.",
     )
     parser.add_argument("--iou_threshold", type=float, default=0.25,
-                        help="3D bbox IoU threshold for a successful match.")
-    parser.add_argument("--matcher", choices=["greedy", "hungarian"], default="hungarian")
+                        help="3D bbox IoU threshold for a GT<->Pred match (benchmark side).")
+    parser.add_argument("--matcher", choices=["greedy", "hungarian"], default="hungarian",
+                        help="GT<->Pred matcher on the benchmark side.")
+    parser.add_argument(
+        "--match_method", default="sim_sum",
+        help="ConceptGraphs internal detection<->object matcher in "
+             "aggregate_similarities. Only 'sim_sum' is implemented by mapping.py.",
+    )
+    parser.add_argument(
+        "--sim_threshold", type=float, default=1.2,
+        help="ConceptGraphs internal sim_sum threshold (README default for replica).",
+    )
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=-1)
     parser.add_argument("--stride", type=int, default=1)
