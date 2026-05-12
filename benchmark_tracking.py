@@ -305,7 +305,8 @@ def benchmark_scene(
             f"{scene_dir}/bbox/bboxes######_info.json files exist."
         )
 
-    tracker.finalize()
+    if args.finalize:
+        tracker.finalize()
 
     results = accumulator.compute()
     results["scene"] = scene_dir.name
@@ -455,6 +456,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_masks", action=argparse.BooleanOptionalAction, default=True,
         help="Save per-frame 2D masks for the visualiser (default on; --no-save_masks to disable).",
+    )
+    parser.add_argument(
+        "--finalize", action="store_true",
+        help="Run ConceptGraphs end-of-run post-processing (denoise/filter/merge). "
+             "Requires faiss; metrics are unaffected since they are accumulated per frame.",
     )
     parser.add_argument("--logger_level", default="INFO")
     args = parser.parse_args()
