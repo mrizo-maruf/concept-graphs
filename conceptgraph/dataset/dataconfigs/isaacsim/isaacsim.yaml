@@ -1,13 +1,30 @@
 dataset_name: 'isaacsim'
+# IsaacSim Replicator camera (1280x720):
+#   focal_length        = 50.0
+#   horizontal aperture = 80.0
+#   vertical aperture   = 45.0
+# => fx = focal * (W / hap) = 50 * 1280 / 80 = 800
+#    fy = focal * (H / vap) = 50 *  720 / 45 = 800
+#    cx = W/2 = 640
+#    cy = H/2 = 360
 camera_params:
   image_height: 720
   image_width: 1280
-  # IsaacSim Replicator default at 1280x720 with ~70 deg horizontal FOV.
-  # Override per scene if your camera prim uses different intrinsics.
-  fx: 913.0
-  fy: 913.0
+  fx: 800.0
+  fy: 800.0
   cx: 640.0
   cy: 360.0
-  # IsaacSim 16-bit depth is stored in millimeters (depth_in_meters * 1000).
-  png_depth_scale: 1000.0
+
+  # The IsaacSim collector encodes depth as an AFFINE map:
+  #     uint16 = (depth_m - depth_min_m) / (depth_max_m - depth_min_m) * png_max_value
+  # IsaacSimDataset._preprocess_depth inverts this. depth_min_m=0.01 doubles
+  # as the "no-return" sentinel: pixels with uint16==0 are treated as invalid
+  # and dropped during point-cloud projection.
+  depth_min_m: 0.01
+  depth_max_m: 10.0
+  png_max_value: 65535
+  # Kept for backwards compatibility with the GradSLAMDataset base — unused
+  # for IsaacSim because the actual decoding is done in _preprocess_depth.
+  png_depth_scale: 6559.96
+
   crop_edge: 0

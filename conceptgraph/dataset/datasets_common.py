@@ -1109,6 +1109,14 @@ class IsaacSimDataset(GradSLAMDataset):
     ):
         self.input_folder = os.path.join(basedir, sequence)
         self.pose_path = os.path.join(self.input_folder, "traj.txt")
+        # IsaacSim writes depth as an *affine*-encoded uint16:
+        #     uint16 = (depth_m - depth_min_m) / (depth_max_m - depth_min_m) * png_max_value
+        # so the inverse needs an offset, not a single scale factor. Read the
+        # bounds from config; fall back to the values used by the user's collector.
+        cam = config_dict.get("camera_params", {})
+        self.depth_min_m: float = float(cam.get("depth_min_m", 0.01))
+        self.depth_max_m: float = float(cam.get("depth_max_m", 10.0))
+        self.png_max_value: float = float(cam.get("png_max_value", 65535.0))
         super().__init__(
             config_dict,
             stride=stride,
@@ -1121,6 +1129,33 @@ class IsaacSimDataset(GradSLAMDataset):
             embedding_dim=embedding_dim,
             **kwargs,
         )
+
+    def _preprocess_depth(self, depth: np.ndarray):
+        """Affine-decode IsaacSim's uint16 depth back to metres.
+
+        Inverse of the encoder used by the collection script::
+
+            uint16 = (depth_m - depth_min_m) / (depth_max_m - depth_min_m) * png_max_value
+
+        Pixels equal to 0 are treated as invalid (no-return) and stay at 0
+        so the downstream point-cloud projection masks them out.
+        """
+        depth = depth.astype(float)
+        depth = cv2.resize(
+            depth,
+            (self.desired_width, self.desired_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        invalid = depth <= 0
+        depth_m = (
+            depth * (self.depth_max_m - self.depth_min_m) / self.png_max_value
+            + self.depth_min_m
+        )
+        depth_m[invalid] = 0.0
+        depth_m = np.expand_dims(depth_m, -1)
+        if self.channels_first:
+            depth_m = datautils.channels_first(depth_m)
+        return depth_m
 
     def get_filepaths(self):
         color_paths = natsorted(glob.glob(f"{self.input_folder}/rgb/frame*.jpg"))
